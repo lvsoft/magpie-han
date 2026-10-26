@@ -23,6 +23,11 @@ class H(BaseHTTPRequestHandler):
                       "choices": [{"index": 0, "delta": {"content": text[i:i+4]}, "finish_reason": None}]}
                 self.wfile.write(("data: " + json.dumps(ev, ensure_ascii=False) + "\n\n").encode())
                 self.wfile.flush()
+            # 真实的 OpenAI 兼容上游会在 [DONE] 前发一个带 finish_reason 的 chunk
+            fin = {"id": "1", "object": "chat.completion.chunk", "created": 1,
+                   "model": req.get("model", "m"),
+                   "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            self.wfile.write(("data: " + json.dumps(fin, ensure_ascii=False) + "\n\n").encode())
             self.wfile.write(b"data: [DONE]\n\n")
         else:
             resp = {"id": "1", "object": "chat.completion", "created": 1,

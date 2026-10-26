@@ -125,6 +125,75 @@ function pipeText(s, slot, st, tbl) {
   return conv(cs.slice(0, k).join(""), tbl)
 }
 
+// takePipe 取走并清空一条流的缓冲
+function takePipe(st, slot) {
+  const pipes = st.pipes
+  if (!pipes || !pipes[slot]) return ""
+  const b = pipes[slot]
+  pipes[slot] = ""
+  return b
+}
+
+function clearPipes(st) {
+  const pipes = st.pipes
+  if (!pipes) return false
+  let had = false
+  for (const k in pipes) {
+    if (pipes[k]) {
+      pipes[k] = ""
+      had = true
+    }
+  }
+  return had
+}
+
+// flushOnTerminal：终止事件（正常结束、错误、上游断开）到来时把管道里剩下的
+// 半个词就地放出去。能否放出去取决于协议有没有位置承载：
+//   Chat      终止 chunk 的 choices[].delta.content  —— 客户端会累积，放得出去
+//   Gemini    终止 chunk 的 candidates[].content.parts[].text —— 同上
+//   Anthropic content_block_stop / message_stop 没有正文位置，只会留下半个词
+//   Responses response.output_text.done 的 text 是全文，追加会重复
+// 放不出去的协议就丢掉这 1–2 个字，并记下这次丢弃。
+function flushOnTerminal(ev, tbl, st) {
+  if (!st || !st.pipes) return false
+  if (Array.isArray(ev.choices)) {
+    for (const c of ev.choices) {
+      if (!c || !c.finish_reason) continue
+      const b = takePipe(st, "c")
+      if (!b) continue
+      if (!c.delta) c.delta = {}
+      const had = typeof c.delta.content === "string" ? c.delta.content : ""
+      c.delta.content = had + conv(b, tbl)
+      return true
+    }
+    return false
+  }
+  if (Array.isArray(ev.candidates)) {
+    for (const c of ev.candidates) {
+      if (!c || !c.finishReason) continue
+      const b = takePipe(st, "g")
+      if (!b) continue
+      if (!c.content) c.content = {}
+      if (!Array.isArray(c.content.parts)) c.content.parts = []
+      c.content.parts.push({ text: conv(b, tbl) })
+      return true
+    }
+    return false
+  }
+  const t = ev.type
+  if (
+    t === "content_block_stop" ||
+    t === "message_delta" ||
+    t === "message_stop" ||
+    t === "response.completed" ||
+    t === "response.output_text.done" ||
+    t === "error"
+  ) {
+    if (clearPipes(st)) st.dropped = (st.dropped || 0) + 1
+  }
+  return false
+}
+
 // —— options ——
 // 全部可省略；省略时用下面的默认值（C 方案：请求简→繁、回复繁→简）。
 const DEF = { request: "s2t", reply: "t2s", scope: "all", system: false, reasoning: true }
@@ -310,6 +379,7 @@ export function onEvent(ev, ctx) {
       for (const p of parts) fix(p, "text", "g")
     }
   }
+  if (usePipe) changed = flushOnTerminal(ev, tbl, st) || changed
   return changed ? ev : undefined
 }
 

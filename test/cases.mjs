@@ -147,3 +147,34 @@ test("反方向：请求繁→简、回复简→繁", () => {
   const b = req({ messages: [{ role: "user", content: "頭髮很乾燥" }] }, "anthropic", { request: "t2s", reply: "s2t" })
   assert.equal(b.messages[0].content, "头发很干燥")
 })
+
+test("流式：Chat 终止 chunk 把管道余下的半个词带出去", () => {
+  const ctx = { protocol: "chat", options: { reply: "s2t" }, state: {} }
+  mw.onEvent({ choices: [{ delta: { content: "头" } }] }, ctx)
+  const fin = mw.onEvent({ choices: [{ delta: {}, finish_reason: "stop" }] }, ctx)
+  assert.equal(fin.choices[0].delta.content, "頭")
+  assert.equal(ctx.state.pipes.c, "")
+})
+
+test("流式：Gemini 终止 chunk 一样能带出去", () => {
+  const ctx = { protocol: "gemini", options: { reply: "s2t" }, state: {} }
+  mw.onEvent({ candidates: [{ content: { parts: [{ text: "头" }] } }] }, ctx)
+  const fin = mw.onEvent({ candidates: [{ content: { parts: [] }, finishReason: "STOP" }] }, ctx)
+  assert.equal(fin.candidates[0].content.parts[0].text, "頭")
+})
+
+test("流式：Anthropic 终止没有承载位置，丢弃但清空状态", () => {
+  const ctx = { protocol: "anthropic", options: { reply: "s2t" }, state: {} }
+  mw.onEvent({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "头" } }, ctx)
+  assert.equal(ctx.state.pipes.a0, "头")
+  mw.onEvent({ type: "content_block_stop", index: 0 }, ctx)
+  assert.equal(ctx.state.pipes.a0, "")
+  assert.equal(ctx.state.dropped, 1)
+})
+
+test("流式：错误事件也会清空管道（不把半个词留在状态里）", () => {
+  const ctx = { protocol: "anthropic", options: { reply: "s2t" }, state: {} }
+  mw.onEvent({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "头" } }, ctx)
+  mw.onEvent({ type: "error", error: { type: "overloaded_error", message: "502" } }, ctx)
+  assert.equal(ctx.state.pipes.a0, "")
+})

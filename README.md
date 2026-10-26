@@ -65,7 +65,18 @@ magpie plugin options han.middleware.js off        # 恢复全部默认
 
 所以 `头` 这个事件发出去的是空串，`发` 到达时缓冲拼成 `头发`，一次性发出 `頭髮`。管道只保留真正需要等的字符（通常 0–2 个），不是固定长度，所以延迟就是那一个事件，不会越积越多。
 
-**代价**：magpie 没有「流结束」钩子（`data: [DONE]` 不进 `onEvent`，`Run.End` 也不回调 JS），所以缓冲区不会在流结束时被冲出来。如果流恰好断在一个没写完的词上，那半个词（1–2 个字）不会发出。以标点或空白结尾的流不受影响——那些字符不在任何词条的路径上，缓冲当场就清空了。在意这一点就把 `stream` 设为 `"char"`：退回逐事件转换，绝不丢字，代价是被切开的词按单字转（`頭`+`發`）。
+**终止时会强制冲出**。管道不是只等下一个事件：终止事件一到，缓冲里的半个词就当场放出去。能不能放出去取决于协议有没有位置承载：
+
+| 协议 | 终止事件 | 结果 |
+| :-- | :-- | :-- |
+| Chat Completions | 带 `finish_reason` 的 chunk | 塞进该 chunk 的 `delta.content`，客户端会累积 ✓ |
+| Gemini | 带 `finishReason` 的 chunk | 塞进该 chunk 的 `content.parts[]` ✓ |
+| Anthropic Messages | `content_block_stop` / `message_stop` | 没有正文位置，半个词丢弃（状态清空） |
+| Responses | `response.output_text.done` / `response.completed` | 同上（`done` 的 `text` 是全文，追加会重复） |
+
+错误事件（`type: "error"`）也一样清空管道，不会把半个词留在 `ctx.state` 里。
+
+**仍然存在的缺口**：`data: [DONE]` 不进 `onEvent`，`Run.End` 也不回调 JS，所以「只发 `[DONE]`、不发 finish chunk」的上游没有冲出时机；上游在流中途直接断开也一样。这两种情况下丢掉的是缓冲里的 1–2 个字。以标点或空白结尾的流不受影响——那些字符不在任何词条的路径上，缓冲当场就清空了。在意的话把 `stream` 设为 `"char"`：退回逐事件转换，绝不丢字，代价是被切开的词按单字转（`頭`+`發`）。
 
 顺带一提：默认方向（回复侧 t2s）里这个代价几乎为零——繁体到简体基本是单字映射，`頭`+`髮` 逐字转出来就是 `头发`。只有 `reply: "s2t"` 才真的需要管道。
 
