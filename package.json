@@ -1,0 +1,14 @@
+{
+  "name": "magpie-middleware-han",
+  "version": "0.1.0",
+  "description": "magpie gateway middleware: Chinese Simplified/Traditional glyph conversion on both the request and the reply",
+  "type": "module",
+  "private": true,
+  "files": ["dist/han.middleware.js", "README.md"],
+  "keywords": ["magpie", "magpie-middleware", "opencc", "chinese", "s2t", "t2s"],
+  "license": "MIT",
+  "magpie": {
+    "middleware": "./dist/han.middleware.js",
+    "options": { "request": "s2t", "reply": "t2s", "scope": "all", "system": false, "reasoning": true }
+  }
+}

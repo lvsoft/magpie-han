@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+.upstream.json
+vendor/corpus/
+tmp/
+*.log
